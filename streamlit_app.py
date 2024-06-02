@@ -1,82 +1,36 @@
 import os
-import streamlit as st
-import subprocess
-from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer, AutoModel, RagRetriever, AutoModelForSeq2SeqLM
-import black
-from pylint import lint
-from io import StringIO
 import sys
-import torch
-from huggingface_hub import hf_hub_url, cached_download, HfApi
+import subprocess
 import base64
+import json
+from io import StringIO
+from typing import Dict, List
 
-# Add the new HTML code below
-custom_html = '''
-<div style='position:fixed;bottom:0;left:0;width:100%;'>
-  <iframe width="100%" scrolling="no" title="CodeGPT Widget" frameborder="0" allowtransparency sandbox="" allowfullscreen="" data-widget-id="c265505c-e667-4af2-b492-291da888ee7c" src="https://widget.codegpt.co/chat-widget.js"></iframe>
-</div>'''
+import streamlit as st
+from transformers import pipeline, AutoModelForSeq2SeqLM, AutoTokenizer
+from pylint import lint
 
-# Update the markdown function to accept custom HTML code
-
-
-def markdown_with_custom_html(md, html):
-    md_content = md
-    if html:
-        return f"{md_content}\n\n{html}"
-    else:
-        return md_content
-
-
-markdown_text = "Compare model responses with me!"
-markdown_with_custom_html(markdown_text, custom_html)
-
-
-# Set your Hugging Face API key here
-# hf_token = "YOUR_HUGGING_FACE_API_KEY"  # Replace with your actual token
-# Get Hugging Face token from secrets.toml - this line should already be in the main code
+# Add your Hugging Face API token here
 hf_token = st.secrets["huggingface"]["key"]
 
-HUGGING_FACE_REPO_URL = "https://huggingface.co/spaces/acecalisto3/DevToolKit"
-PROJECT_ROOT = "projects"
-AGENT_DIRECTORY = "agents"
-
 # Global state to manage communication between Tool Box and Workspace Chat App
-if 'chat_history' not in st.session_state:
+if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
-if 'terminal_history' not in st.session_state:
+if "terminal_history" not in st.session_state:
     st.session_state.terminal_history = []
-if 'workspace_projects' not in st.session_state:
+if "workspace_projects" not in st.session_state:
     st.session_state.workspace_projects = {}
-if 'available_agents' not in st.session_state:
-    st.session_state.available_agents = []
-if 'current_state' not in st.session_state:
-    st.session_state.current_state = {
-        'toolbox': {},
-        'workspace_chat': {}
-    }
-
-# List of top downloaded free code-generative models from Hugging Face Hub
-AVAILABLE_CODE_GENERATIVE_MODELS = [
-    "bigcode/starcoder",  # Popular and powerful
-    "Salesforce/codegen-350M-mono",  # Smaller, good for quick tasks
-    "microsoft/CodeGPT-small",  # Smaller, good for quick tasks
-    "google/flan-t5-xl",  # Powerful, good for complex tasks
-    "facebook/bart-large-cnn",  # Good for text-to-code tasks
-]
 
 # Load pre-trained RAG retriever
-rag_retriever = RagRetriever.from_pretrained(
-    "facebook/rag-token-base")  # Use a Hugging Face RAG model
+rag_retriever = pipeline("retrieval-question-answering", model="facebook/rag-token-base")
 
 # Load pre-trained chat model
-chat_model = AutoModelForSeq2SeqLM.from_pretrained(
-    "microsoft/DialoGPT-medium")  # Use a Hugging Face chat model
+chat_model = AutoModelForSeq2SeqLM.from_pretrained("microsoft/DialoGPT-medium")
 
 # Load tokenizer
 tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
 
-
-def process_input(user_input):
+def process_input(user_input: str) -> str:
     # Input pipeline: Tokenize and preprocess user input
     input_ids = tokenizer(user_input, return_tensors="pt").input_ids
     attention_mask = tokenizer(user_input, return_tensors="pt").attention_mask
@@ -97,14 +51,13 @@ def process_input(user_input):
     # Output pipeline: Return final response
     return refined_response
 
-
 class AIAgent:
-    def __init__(self, name, description, skills, hf_api=None):
+    def __init__(self, name: str, description: str, skills: List[str], hf_api=None):
         self.name = name
         self.description = description
         self.skills = skills
         self._hf_api = hf_api
-        self._hf_token = hf_token  # Store the token here
+        self._hf_token = hf_token
 
     @property
     def hf_api(self):
@@ -115,14 +68,10 @@ class AIAgent:
     def has_valid_hf_token(self):
         return bool(self._hf_token)
 
-    async def autonomous_build(self, chat_history, workspace_projects, project_name, selected_model, hf_token):
-        self._hf_token = hf_token
+    async def autonomous_build(self, chat_history: List[str], workspace_projects: Dict[str, str], project_name: str, selected_model: str):
         # Continuation of previous methods
-        summary = "Chat History:\n" + \
-            "\n".join([f"User: {u}\nAgent: {a}" for u, a in chat_history])
-        summary += "\n\nWorkspace Projects:\n" + \
-            "\n".join([f"{p}: {details}" for p,
-                      details in workspace_projects.items()])
+        summary = "Chat History:\n" + "\n".join(chat_history)
+        summary += "\n\nWorkspace Projects:\n" + "\n".join(workspace_projects.items())
 
         # Analyze chat history and workspace projects to suggest actions
         # Example:
@@ -174,25 +123,7 @@ class AIAgent:
 
         return summary, next_step
 
-    def deploy_built_space_to_hf(self):
-        if not self._hf_api or not self._hf_token:
-            raise ValueError(
-                "Cannot deploy the Space since no valid Hugoging Face API connection was established.")
-
-        # Assuming you have a function to get the files for your Space
-        repository_name = f"my-awesome-space_{datetime.now().timestamp()}"
-        files = get_built_space_files()  # Placeholder - you'll need to define this function
-
-        # Create the Space
-        create_space(self.hf_api, repository_name, "Description", True, files)
-
-        st.markdown("## Congratulations! Successfully deployed Space 🚀 ##")
-        st.markdown(
-            f"[Check out your new Space here](https://huggingface.co/spaces/{repository_name})")
-
-
-# Add any missing functions from your original code (e.g., get_built_space_files)
-def get_built_space_files():
+def get_built_space_files() -> Dict[str, str]:
     # Replace with your logic to gather the files you want to deploy
     return {
         "app.py": "# Your Streamlit app code here",
@@ -200,8 +131,7 @@ def get_built_space_files():
         # Add other files as needed
     }
 
-
-def save_agent_to_file(agent):
+def save_agent_to_file(agent: AIAgent):
     """Saves the agent's prompt to a file."""
     if not os.path.exists(AGENT_DIRECTORY):
         os.makedirs(AGENT_DIRECTORY)
@@ -210,8 +140,7 @@ def save_agent_to_file(agent):
         file.write(agent.create_agent_prompt())
     st.session_state.available_agents.append(agent.name)
 
-
-def load_agent_prompt(agent_name):
+def load_agent_prompt(agent_name: str) -> str:
     """Loads an agent prompt from a file."""
     file_path = os.path.join(AGENT_DIRECTORY, f"{agent_name}.txt")
     if os.path.exists(file_path):
@@ -221,48 +150,28 @@ def load_agent_prompt(agent_name):
     else:
         return None
 
-
-def create_agent_from_text(name, text):
-    skills = text.split('\n')
+def create_agent_from_text(name: str, text: str) -> str:
+    skills = text.split("\n")
     agent = AIAgent(name, "AI agent created from text input.", skills)
     save_agent_to_file(agent)
     return agent.create_agent_prompt()
 
-
-def chat_interface_with_agent(input_text, agent_name):
+def chat_interface_with_agent(input_text: str, agent_name: str) -> str:
     agent_prompt = load_agent_prompt(agent_name)
     if agent_prompt is None:
         return f"Agent {agent_name} not found."
 
     model_name = "MaziyarPanahi/Codestral-22B-v0.1-GGUF"
     try:
-        from transformers import AutoModel, AutoTokenizer  # Import AutoModel here
-        model = AutoModel.from_pretrained(
-            "MaziyarPanahi/Codestral-22B-v0.1-GGUF")
-        tokenizer = AutoTokenizer.from_pretrained(model_name)
-        generator = pipeline(
-            "text-generation", model=model, tokenizer=tokenizer)
-    except EnvironmentError as e:
+        generator = pipeline("text-generation", model=model_name)
+        generator.tokenizer.pad_token = generator.tokenizer.eos_token
+        generated_response = generator(
+            f"{agent_prompt}\n\nUser: {input_text}\nAgent:", max_length=100, do_sample=True, top_k=50)[0]["generated_text"]
+        return generated_response
+    except Exception as e:
         return f"Error loading model: {e}"
 
-    combined_input = f"{agent_prompt}\n\nUser: {input_text}\nAgent:"
-
-    input_ids = tokenizer.encode(combined_input, return_tensors="pt")
-    max_input_length = 900
-    if input_ids.shape[1] > max_input_length:
-        input_ids = input_ids[:, :max_input_length]
-
-    outputs = model.generate(
-        input_ids, max_new_tokens=50, num_return_sequences=1, do_sample=True,
-        pad_token_id=tokenizer.eos_token_id  # Set pad_token_id to eos_token_id
-    )
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    return response
-
-# Terminal interface
-
-
-def terminal_interface(command, project_name=None):
+def terminal_interface(command: str, project_name: str = None) -> str:
     if project_name:
         project_path = os.path.join(PROJECT_ROOT, project_name)
         if not os.path.exists(project_path):
@@ -270,14 +179,10 @@ def terminal_interface(command, project_name=None):
         result = subprocess.run(
             command, shell=True, capture_output=True, text=True, cwd=project_path)
     else:
-        result = subprocess.run(command, shell=True,
-                                capture_output=True, text=True)
+        result = subprocess.run(command, shell=True, capture_output=True, text=True)
     return result.stdout
 
-# Code editor interface
-
-
-def code_editor_interface(code):
+def code_editor_interface(code: str) -> str:
     try:
         formatted_code = black.format_str(code, mode=black.FileMode())
     except black.NothingChanged:
@@ -295,58 +200,41 @@ def code_editor_interface(code):
 
     return formatted_code, lint_message
 
-# Text summarization tool
-
-
-def summarize_text(text):
+def summarize_text(text: str) -> str:
     summarizer = pipeline("summarization")
     summary = summarizer(text, max_length=130, min_length=30, do_sample=False)
     return summary[0]['summary_text']
 
-# Sentiment analysis tool
-
-
-def sentiment_analysis(text):
+def sentiment_analysis(text: str) -> str:
     analyzer = pipeline("sentiment-analysis")
     result = analyzer(text)
     return result[0]['label']
 
-# Text translation tool (code translation)
-
-
-def translate_code(code, source_language, target_language):
+def translate_code(code: str, source_language: str, target_language: str) -> str:
     # Use a Hugging Face translation model instead of OpenAI
     # Example: English to Spanish
     translator = pipeline(
         "translation", model="bartowski/Codestral-22B-v0.1-GGUF")
-    translated_code = translator(code, target_lang=target_language)[
-        0]['translation_text']
+    translated_code = translator(code, target_lang=target_language)[0]['translation_text']
     return translated_code
 
-
-def generate_code(code_idea, model_name):
+def generate_code(code_idea: str, model_name: str) -> str:
     """Generates code using the selected model."""
     try:
         generator = pipeline('text-generation', model=model_name)
-        generated_code = generator(code_idea, max_length=1000, num_return_sequences=1)[
-            0]['generated_text']
+        generated_code = generator(code_idea, max_length=1000, num_return_sequences=1)[0]['generated_text']
         return generated_code
     except Exception as e:
         return f"Error generating code: {e}"
 
-
-def chat_interface(input_text):
+def chat_interface(input_text: str) -> str:
     """Handles general chat interactions with the user."""
     # Use a Hugging Face chatbot model or your own logic
     chatbot = pipeline("text-generation", model="microsoft/DialoGPT-medium")
-    response = chatbot(input_text, max_length=50, num_return_sequences=1)[
-        0]['generated_text']
+    response = chatbot(input_text, max_length=50, num_return_sequences=1)[0]['generated_text']
     return response
 
-# Workspace interface
-
-
-def workspace_interface(project_name):
+def workspace_interface(project_name: str) -> str:
     project_path = os.path.join(PROJECT_ROOT, project_name)
     if not os.path.exists(project_path):
         os.makedirs(project_path)
@@ -355,10 +243,7 @@ def workspace_interface(project_name):
     else:
         return f"Project '{project_name}' already exists."
 
-# Add code to workspace
-
-
-def add_code_to_workspace(project_name, code, file_name):
+def add_code_to_workspace(project_name: str, code: str, file_name: str) -> str:
     project_path = os.path.join(PROJECT_ROOT, project_name)
     if not os.path.exists(project_path):
         return f"Project '{project_name}' does not exist."
@@ -366,12 +251,10 @@ def add_code_to_workspace(project_name, code, file_name):
     file_path = os.path.join(project_path, file_name)
     with open(file_path, "w") as file:
         file.write(code)
-    st.session_state.workspace_projects[project_name]['files'].append(
-        file_name)
+    st.session_state.workspace_projects[project_name]['files'].append(file_name)
     return f"Code added to '{file_name}' in project '{project_name}'."
 
-
-def create_space(api, name, description, public, files, entrypoint="launch.py"):
+def create_space_on_hugging_face(api, name, description, public, files, entrypoint="launch.py"):
     url = f"{hf_hub_url()}spaces/{name}/prepare-repo"
     headers = {"Authorization": f"Bearer {api.access_token}"}
     payload = {
@@ -386,7 +269,7 @@ def create_space(api, name, description, public, files, entrypoint="launch.py"):
             "content": contents,
             "path": filename,
             "encoding": "utf-8",
-            "mode": "overwrite" if "#\{random.randint(0, 1)\}" not in contents else "merge",
+            "mode": "overwrite"
         }
         payload["files"].append(data)
     response = requests.post(url, json=payload, headers=headers)
@@ -396,7 +279,6 @@ def create_space(api, name, description, public, files, entrypoint="launch.py"):
 
     return Repository(name=name, api=api)
 
-
 # Streamlit App
 st.title("AI Agent Creator")
 
@@ -404,9 +286,6 @@ st.title("AI Agent Creator")
 st.sidebar.title("Navigation")
 app_mode = st.sidebar.selectbox(
     "Choose the app mode", ["AI Agent Creator", "Tool Box", "Workspace Chat App"])
-
-# Get Hugging Face token from secrets.toml
-hf_token = st.secrets["huggingface"]["hf_token"]
 
 if app_mode == "AI Agent Creator":
     # AI Agent Creator
@@ -485,58 +364,6 @@ elif app_mode == "Workspace Chat App":
     # Workspace Chat App
     st.header("Workspace Chat App")
 
-
-def get_built_space_files():
-    """
-    Gathers the necessary files for the Hugging Face Space, 
-    handling different project structures and file types.
-    """
-    files = {}
-
-    # Get the current project name (adjust as needed)
-    project_name = st.session_state.get('project_name', 'my_project')
-    project_path = os.path.join(PROJECT_ROOT, project_name)
-
-    # Define a list of files/directories to search for
-    targets = [
-        "app.py",
-        "requirements.txt",
-        "Dockerfile",
-        "docker-compose.yml",  # Example YAML file
-        "src",          # Example subdirectory
-        "assets"        # Another example subdirectory
-    ]
-
-    # Iterate through the targets
-    for target in targets:
-        target_path = os.path.join(project_path, target)
-
-        # If the target is a file, add it to the files dictionary
-        if os.path.isfile(target_path):
-            add_file_to_dictionary(files, target_path)
-
-        # If the target is a directory, recursively search for files within it
-        elif os.path.isdir(target_path):
-            for root, _, filenames in os.walk(target_path):
-                for filename in filenames:
-                    file_path = os.path.join(root, filename)
-                    add_file_to_dictionary(files, file_path)
-
-    return files
-
-
-def add_file_to_dictionary(files, file_path):
-    """Helper function to add a file to the files dictionary."""
-    filename = os.path.relpath(file_path, PROJECT_ROOT)  # Get relative path
-
-    # Handle text and binary files
-    if filename.endswith((".py", ".txt", ".json", ".html", ".css", ".yml", ".yaml")):
-        with open(file_path, "r") as f:
-            files[filename] = f.read()
-    else:
-        with open(file_path, "rb") as f:
-            file_content = f.read()
-            files[filename] = base64.b64encode(file_content).decode("utf-8")
     # Project Workspace Creation
     st.subheader("Create a New Project")
     project_name = st.text_input("Enter project name:")
@@ -639,25 +466,10 @@ def add_file_to_dictionary(files, file_path):
         st.write("Next Step:")
         st.write(next_step)
 
-    # Using the modified and extended class and functions, update the callback for the 'Automate' button in the Streamlit UI:
-    if st.button("Automate", args=(hf_token,)):
-        # Load the agent without skills for now
-        agent = AIAgent(selected_agent, "", [])
-        summary, next_step = agent.autonomous_build(
-            st.session_state.chat_history, st.session_state.workspace_projects, project_name, selected_model, hf_token)
-        st.write("Autonomous Build Summary:")
-        st.write(summary)
-        st.write("Next Step:")
-        st.write(next_step)
-
     # If everything went well, proceed to deploy the Space
     if agent._hf_api and agent.has_valid_hf_token():
         agent.deploy_built_space_to_hf()
         # Use the hf_token to interact with the Hugging Face API
         api = HfApi(token=hf_token)
         # Function to create a Space on Hugging Face
-
-
-def create_space(api, name, description, public, files, entrypoint="launch.py"):
-    url = f"{hf_hub_url()}spaces/{name}/prepare-repo"
-    headers = {"Authorization": f"Bearer {api.access_token}"}
+        create_space_on_hugging_face(api, agent.name, agent.description, True, get_built_space_files())
