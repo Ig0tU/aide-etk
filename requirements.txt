@@ -1,12 +1,17 @@
-import streamlit as st
-
-def main():
-    st.title("My Streamlit App")
-
-    # Use Streamlit's built-in text input and button components
-    user_input = st.text_input("Enter some text:")
-    if st.button("Submit"):
-        st.write("You entered:", user_input)
-
-if __name__ == "__main__":
-    main()
+transformers
+streamlit==1.26.0
+openai
+torch
+torchvision
+torchaudio
+black
+pylint
+opencv-python
+gradio
+cookiecutter
+GitPython
+pytest
+faiss-cpu
+huggingface-cli
+os
+huggingface_hub
