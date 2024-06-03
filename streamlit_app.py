@@ -11,7 +11,7 @@ from transformers import pipeline, AutoModelForSeq2SeqLM, AutoTokenizer
 from pylint import lint
 
 # Add your Hugging Face API token here
-hf_token = st.secrets["huggingface"]["key"]
+hf_token = st.secrets["huggingface"]
 
 # Global state to manage communication between Tool Box and Workspace Chat App
 if "chat_history" not in st.session_state:
@@ -470,6 +470,5 @@ elif app_mode == "Workspace Chat App":
     if agent._hf_api and agent.has_valid_hf_token():
         agent.deploy_built_space_to_hf()
         # Use the hf_token to interact with the Hugging Face API
-        api = HfApi(token=hf_token)
-        # Function to create a Space on Hugging Face
+        api = HfApi(token="hf_token")        # Function to create a Space on Hugging Face
         create_space_on_hugging_face(api, agent.name, agent.description, True, get_built_space_files())
